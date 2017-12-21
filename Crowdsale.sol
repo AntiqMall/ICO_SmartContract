@@ -288,6 +288,8 @@ contract Crowdsale is Ownable {
   
   uint256 public tokensCount;
   
+  uint256 public bountyTokensCount;
+  
   enum State {
     early_pre_ico,  
     pre_ico,
@@ -301,6 +303,8 @@ contract Crowdsale is Ownable {
   }
   
   State public currentState;
+  
+  uint256 constant MIN_WEI_VALUE = 1 * 1e16;
   
   uint256 constant PRE_ICO_SALE_VALUE = 10;
   uint256 constant EARLY_PRE_ICO_SALE_VALUE_1 = 4;
@@ -346,6 +350,7 @@ contract Crowdsale is Ownable {
     currentState = State.paused;
     wallet = msg.sender;
     tokensCount = 0;
+    bountyTokensCount = 0;
   }
 
   // creates the token to be sold.
@@ -357,6 +362,20 @@ contract Crowdsale is Ownable {
   function setIcoState(State _newState) public onlyOwner {
     currentState = _newState;
   }
+  
+  function mintBountyTokens(address _wallet) public onlyOwner payable {
+    uint256 tokens = tokensCount.sub(bountyTokensCount);
+    tokens = tokens.mul(25).div(100);
+    tokens = tokens.sub(bountyTokensCount);
+    
+    require(tokens >= 1);
+      
+    // update state
+    tokensCount = tokensCount.add(tokens);
+    bountyTokensCount = bountyTokensCount.add(tokens);
+
+    token.mint(_wallet, tokens);
+  }
 
   // fallback function can be used to buy tokens
   function () payable {
@@ -367,6 +386,7 @@ contract Crowdsale is Ownable {
   function buyTokens(address beneficiary) public saleIsOn payable {
     require(beneficiary != address(0));
     require(msg.value != 0);
+    require(msg.value >= MIN_WEI_VALUE);
     
     uint256 limit = getLimit();
     
@@ -378,7 +398,7 @@ contract Crowdsale is Ownable {
     
     tokens = tokens.add(bonusTokens);
     
-    require(limit >= tokensCount.add(tokens).add(tokensCount.add(tokens).mul(RESERVED_TOKENS_PERCENT).div(100)));
+    require(limit >= tokensCount.add(tokens).sub(bountyTokensCount));
 
     // update state
     weiRaised = weiRaised.add(weiAmount);
@@ -394,6 +414,10 @@ contract Crowdsale is Ownable {
     uint256 bonusTokens = ICO_DEFAULT_BONUS;
     if(currentState == State.pre_ico) {
       bonusTokens = _tokens.div(100).mul(PRE_ICO_BONUS);
+      
+      if(_weiAmount >= PRE_ICO_SALE_VALUE.mul(1e18)) {
+        bonusTokens = _tokens.div(100).mul(PRE_ICO_SALE_BONUS);
+      }
     }
     if(currentState == State.ico_w1) {
       bonusTokens = _tokens.div(100).mul(ICO_BONUS_W1);
@@ -406,10 +430,6 @@ contract Crowdsale is Ownable {
     }
     if(currentState == State.ico_w4) {
       bonusTokens = _tokens.div(100).mul(ICO_BONUS_W4);
-    }
-    
-    if(_weiAmount >= PRE_ICO_SALE_VALUE.mul(1e18)) {
-        bonusTokens = _tokens.div(100).mul(PRE_ICO_SALE_BONUS);
     }
     
     if(currentState == State.early_pre_ico) {
@@ -438,7 +458,7 @@ contract Crowdsale is Ownable {
       return PRE_ICO_TOKENS_LIMIT;
     }
     
-    return ICO_TOKENS_LIMIT;
+    return ICO_TOKENS_LIMIT.sub(ICO_TOKENS_LIMIT.mul(RESERVED_TOKENS_PERCENT).div(100));
   }
 
   // send ether to the fund collection wallet
